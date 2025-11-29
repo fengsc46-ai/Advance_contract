@@ -158,13 +158,6 @@ contract MeMeToken is ERC20, Ownable {
         }
     }
 
-    // 设置新的税费
-    function setTaxRate(uint256 newBuyRate, uint256 newSellRate, uint256 newTransferRate) external onlyOwner {
-        require(newBuyRate + newSellRate + newTransferRate == 100, "Shares must sum to 100");
-        buyTax = newBuyRate;
-        sellTax = newSellRate;
-        transferTax = newTransferRate;
-    }
 
 /**
  * 添加流动性相关函数=====================================================================
@@ -189,5 +182,44 @@ contract MeMeToken is ERC20, Ownable {
 
 
     // 流动性卖出
+
+
+
+    /*** 管理员操作相关函数===================================================================== */
+    // 更新税费接收地址
+    function setTaxRecipient(address newRecipient) external onlyOwner {
+        require(newRecipient != address(0), "Invalid address");
+        taxRecipient = newRecipient;
+    }
+
+    // 设置新的税费
+    function setTaxRate(uint256 newBuyRate, uint256 newSellRate, uint256 newTransferRate) external onlyOwner {
+        require(newBuyRate + newSellRate + newTransferRate == 100, "Shares must sum to 100");
+        buyTax = newBuyRate;
+        sellTax = newSellRate;
+        transferTax = newTransferRate;
+    }
+
+    // 添加/删除免交易限制地址
+    function excludeFromLimits(address account, bool excluded) external onlyOwner {
+        isExcludedFromLimits[account] = excluded;
+    }
+
+    // 添加/删除免税地址
+    function excludeFromTax(address account, bool excluded) external onlyOwner {
+        isExcludedFromTax[account] = excluded;
+    }
+
+    // 交易限制参数设置
+    function setTransactionLimits(uint256 maxTxAmount, uint256 maxWalletAmt, uint256 cooldownSec) external onlyOwner {
+        // 参数合法性校验
+        require(maxTxAmount > 0, "Invalid max transaction amount");
+        require(maxWalletAmt > 0, "Invalid max wallet amount");
+        require(cooldownSec > 0, "Invalid cooldown period");
+
+        maxTransactionAmount = maxTxAmount;
+        maxWalletBalance = maxWalletAmt;
+        cooldownPeriod = cooldownSec;
+    }
 
 }
