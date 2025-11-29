@@ -48,12 +48,14 @@ contract MeMeToken is ERC20, Ownable {
     uint256 public liquidityTax = 70; // 税费中用于流动性池的百分比
     uint256 public recipientTax = 0; // 税费中用于接收地址的百分比
 
-    uint256 public maxTransactionAmount; // 单笔交易最大额度
-    uint256 public dailyTransactionLimit; // 每日交易次数限制
+    // 交易限制参数
+    uint256 public maxTransactionAmount = 1000000 * 10**18; // 单笔最大交易量
+    uint256 public maxWalletBalance = 5000000 * 10**18; // 单个钱包最大持币量
+    uint256 public cooldownPeriod = 300; // 交易冷却时间（秒）
+    mapping(address => uint256) private _lastTransactionTime; // 记录上次交易时间
     mapping (address => bool) public isExcludedFromLimits; // 免交易限制地址列表
-    mapping(address => uint256) public dailyTransactionCount; // 记录每日交易次数
 
-    // liu
+    // 流动性池相关变量
     IUniswapV2Router02 public immutable uniswapV2Router;
     address public uniswapV2Pair;
     mapping(address => bool) public isWhitelistedPair;
@@ -64,12 +66,10 @@ contract MeMeToken is ERC20, Ownable {
         buyTax = 5; // 初始税率5%
         sellTax = 10; // 初始税率10%
         transferTax = 2; // 初始税率2%
-        taxRecipient = owner(); // 初始税费接收地址为合约拥有者
-        maxTransactionAmount = 1000 * (10 ** decimals()); // 初始单笔交易最大额度1000代币
-        dailyTransactionLimit = 10; // 初始每日交易次数限制10次
-
-        uniswapV2Router = IUniswapV2Router02(uniswapRouter);
+        taxRecipient = msg.sender; // 初始税费接收地址为合约拥有者
+        liquidityWallet = msg.sender; // 初始流动性钱包为合约拥有者
         
+        uniswapV2Router = IUniswapV2Router02(uniswapRouter); 
         // 创建交易对
         uniswapV2Pair = IUniswapV2Factory(uniswapV2Router.factory())
             .createPair(address(this), uniswapV2Router.WETH());
@@ -78,9 +78,38 @@ contract MeMeToken is ERC20, Ownable {
         _mint(msg.sender, initialSupply);
     }
 
+/** * 税费和交易限制相关函数===================================================================== */
+
+    // 检查交易限制
+    function _checkTransferLimits(address from, address to, uint256 amount) internal view {
+        require(amount > 0, "Transfer amount must be greater than zero");
+        require(from != address(0), "Transfer from the zero address");
+        require(to != address(0), "Transfer to the zero address");
+       
+        // 最大交易量限制
+        if (from == uniswapV2Pair || to == uniswapV2Pair) {
+            require(amount <= maxTransactionAmount, "Exceeds max transaction amount");
+        }
+        
+        // 最大持币量限制
+        if (to != uniswapV2Pair && to != address(uniswapV2Router)) {
+            require(balanceOf(to) + amount <= maxWalletBalance, "Exceeds max wallet amount");
+        }
+        
+        // 检查交易冷却时间
+        require(
+            block.timestamp >= _lastTransactionTime[from]+cooldownPeriod,
+            "Cooldown period not elapsed"
+        );
+    }
+    
     // 重写 transfer 函数以实现交易税和交易限制功能
     function transfer(address to, uint256 value) public override virtual returns (bool) {
-        require(value <= maxTransactionAmount, "Exceeds max transaction amount");
+         // 应用交易限制
+        if (!isExcludedFromLimits[_msgSender()] && !isExcludedFromLimits[to]) {
+            _checkTransferLimits(_msgSender(), to, value);
+        }
+        
         require(to != address(0), "Invalid recipient address");
         // 计算税费
         uint256 tax = _calculateSellTax(_msgSender(), to, value);
@@ -93,6 +122,7 @@ contract MeMeToken is ERC20, Ownable {
         return true;
     }
 
+/** * 税费相关函数===================================================================== */
     // 计算税费
     function _calculateSellTax(address from, address to, uint256 amount) internal view returns (uint256) {
         // 判断是买入、卖出还是普通转账，并应用相应的税率
@@ -119,6 +149,7 @@ contract MeMeToken is ERC20, Ownable {
         // 添加流动性
         if (liquidityAmount > 0) {
             // 这里可以添加流动性到Uniswap的逻辑
+            _transfer(address(this), liquidityWallet, liquidityAmount);
         }
 
         // 转账给税费接收地址
@@ -129,15 +160,15 @@ contract MeMeToken is ERC20, Ownable {
 
     // 设置新的税费
     function setTaxRate(uint256 newBuyRate, uint256 newSellRate, uint256 newTransferRate) external onlyOwner {
-        require(newBuyRate <= 15, "Tax rate too high");
-        require(newSellRate <= 25, "Tax rate too high");
-        require(newTransferRate <= 10, "Tax rate too high");
+        require(newBuyRate + newSellRate + newTransferRate == 100, "Shares must sum to 100");
         buyTax = newBuyRate;
         sellTax = newSellRate;
         transferTax = newTransferRate;
     }
 
-
+/**
+ * 添加流动性相关函数=====================================================================
+ */
     // 添加流动性
     function addLiquidity(uint256 tokenAmount, uint256 ethAmount) internal  {
         _approve(address(this), address(uniswapV2Router), tokenAmount);
@@ -151,35 +182,12 @@ contract MeMeToken is ERC20, Ownable {
         );
     }
 
-    // function lockLiquidity(uint256 daysToLock) external onlyOwner {
-    //     require(daysToLock <= 365, "Lock period too long");
-    //     liquidityLock = block.timestamp + daysToLock * 1 days;
-    // }
+    // 移除流动性
 
-    // DEX 交易对验证修饰符
-    modifier validateDexPair(address pair) {
-        require(isWhitelistedPair[pair], "Invalid DEX pair");
-        _;
-    }
-    
-    // 安全交换函数
-    function _safeSwap(
-        address pair,
-        uint256 amountOutMin,
-        address[] memory path
-    ) internal validateDexPair(pair) {
-        uint256[] memory amounts = uniswapV2Router.getAmountsOut(msg.value, path);
-        require(amounts[1] >= amountOutMin, "Insufficient output");
-        
-        (bool success,) = pair.call{value: msg.value}(
-            abi.encodeWithSignature(
-                "swap(uint256,uint256,address,bytes)",
-                amounts[0],
-                amounts[1],
-                msg.sender,
-                new bytes(0)
-            )
-        );
-        require(success, "Swap failed");
-    }
+
+    // 流动性买入
+
+
+    // 流动性卖出
+
 }
