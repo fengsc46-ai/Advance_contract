@@ -154,7 +154,7 @@ contract MeMeToken is ERC20, Ownable {
   /** * 税费相关函数===================================================================== */
     // 计算税费
     function _calculateSellTax(address from, address to, uint256 amount) internal view returns (uint256) {
-        // 判断是买入、卖出还是普通转账，并应用相应的税率
+        // 判断是流动性买入、卖出还是普通转账，并应用相应的税率
         if (to == uniswapV2Pair) {
             return (amount * sellTax) / 100;
         } else  if (from == uniswapV2Pair) {
@@ -202,13 +202,8 @@ contract MeMeToken is ERC20, Ownable {
         );
     }
 
-    // 移除流动性
+    // todo 移除流动性 
 
-
-    // 流动性买入
-
-
-    // 流动性卖出
 
     // 紧急暂停交易
     function emergencyPause() external onlyOwner {
