@@ -61,6 +61,10 @@ contract MeMeToken is ERC20, Ownable {
     mapping(address => bool) public isWhitelistedPair;
     address public liquidityWallet; //流动性钱包
 
+    event TaxDistribution(uint256 marketingAmount, uint256 liquidityAmount, uint256 taxWalletAmount);// 税费处理事件
+    event LiquidityAdded(uint256 tokenAmount, uint256 ethAmount);// 添加流动性事件
+    event TaxUpdated(uint256 buyTax, uint256 sellTax, uint256 transferTax);// 税率更新事件
+    event TransactionLimitsUpdated(uint256 maxTransactionAmount, uint256 maxWalletBalance, uint256 cooldownPeriod);// 交易限制更新事件
 
     constructor(string memory name, string memory symbol, uint256 initialSupply,  address uniswapRouter) ERC20(name, symbol) Ownable(msg.sender) {
         buyTax = 5; // 初始税率5%
@@ -78,7 +82,7 @@ contract MeMeToken is ERC20, Ownable {
         _mint(msg.sender, initialSupply);
     }
 
-/** * 税费和交易限制相关函数===================================================================== */
+    /** * 税费和交易限制相关函数===================================================================== */
 
     // 检查交易限制
     function _checkTransferLimits(address from, address to, uint256 amount) internal view {
@@ -113,16 +117,41 @@ contract MeMeToken is ERC20, Ownable {
         require(to != address(0), "Invalid recipient address");
         // 计算税费
         uint256 tax = _calculateSellTax(_msgSender(), to, value);
-        uint256 amountAfterTax = value - tax;
+        uint256 liquidityAmount = _calculateSellTax(_msgSender(), to, value);
+        uint256 amountAfterTax = value - tax - liquidityAmount;
         // 转账
         _transfer(_msgSender(), to, amountAfterTax);
         
         // 处理税费
         _handleTax(tax);
+
+        emit TaxDistribution(tax, liquidityAmount, amountAfterTax);
         return true;
     }
 
-/** * 税费相关函数===================================================================== */
+    // 重写 transferFrom 函数以实现交易税和交易限制功能
+    function transferFrom(address from, address to, uint256 value) public override virtual returns (bool) {
+         // 应用交易限制
+        if (!isExcludedFromLimits[from] && !isExcludedFromLimits[to]) {
+            _checkTransferLimits(from, to, value);
+        }
+        
+        require(to != address(0), "Invalid recipient address");
+        // 计算税费
+        uint256 tax = _calculateSellTax(from, to, value);
+        uint256 liquidityAmount = _calculateSellTax(from, to, value);
+        uint256 amountAfterTax = value - tax - liquidityAmount;
+        // 转账
+        _transfer(from, to, amountAfterTax);
+
+        // 处理税费
+        _handleTax(tax);
+
+        emit TaxDistribution(tax, liquidityAmount, amountAfterTax);
+        return true;
+    }
+
+  /** * 税费相关函数===================================================================== */
     // 计算税费
     function _calculateSellTax(address from, address to, uint256 amount) internal view returns (uint256) {
         // 判断是买入、卖出还是普通转账，并应用相应的税率
@@ -159,9 +188,7 @@ contract MeMeToken is ERC20, Ownable {
     }
 
 
-/**
- * 添加流动性相关函数=====================================================================
- */
+  /**添加流动性相关函数=====================================================================*/
     // 添加流动性
     function addLiquidity(uint256 tokenAmount, uint256 ethAmount) internal  {
         _approve(address(this), address(uniswapV2Router), tokenAmount);
@@ -183,7 +210,17 @@ contract MeMeToken is ERC20, Ownable {
 
     // 流动性卖出
 
+    // 紧急暂停交易
+    function emergencyPause() external onlyOwner {
+        maxTransactionAmount = 0;
+        cooldownPeriod = type(uint256).max;
+    }
 
+    // 恢复交易
+    function emergencyUnpause(uint256 maxTx, uint256 cooldown) external onlyOwner {
+        maxTransactionAmount = maxTx;
+        cooldownPeriod = cooldown;
+    }
 
     /*** 管理员操作相关函数===================================================================== */
     // 更新税费接收地址
@@ -198,6 +235,7 @@ contract MeMeToken is ERC20, Ownable {
         buyTax = newBuyRate;
         sellTax = newSellRate;
         transferTax = newTransferRate;
+        emit TaxUpdated(buyTax, sellTax, transferTax);
     }
 
     // 添加/删除免交易限制地址
@@ -220,6 +258,7 @@ contract MeMeToken is ERC20, Ownable {
         maxTransactionAmount = maxTxAmount;
         maxWalletBalance = maxWalletAmt;
         cooldownPeriod = cooldownSec;
+        emit TransactionLimitsUpdated(maxTransactionAmount, maxWalletBalance, cooldownPeriod);
     }
 
 }
