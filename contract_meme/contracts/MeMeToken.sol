@@ -87,7 +87,7 @@ contract MeMeToken is ERC20, Ownable {
     // 检查交易限制
     function _checkTransferLimits(address from, address to, uint256 amount) internal view {
         require(amount > 0, "Transfer amount must be greater than zero");
-        require(from != address(0), "Transfer from the zero address");
+        require(from != address(0), "Transfer from the zero address:");
         require(to != address(0), "Transfer to the zero address");
        
         // 最大交易量限制
@@ -117,15 +117,12 @@ contract MeMeToken is ERC20, Ownable {
         require(to != address(0), "Invalid recipient address");
         // 计算税费
         uint256 tax = _calculateSellTax(_msgSender(), to, value);
-        uint256 liquidityAmount = _calculateSellTax(_msgSender(), to, value);
-        uint256 amountAfterTax = value - tax - liquidityAmount;
+        uint256 amountAfterTax = value - tax;
         // 转账
-        _transfer(_msgSender(), to, amountAfterTax);
-        
+        super.transfer(to, amountAfterTax);
+        super.transfer(address(this), tax);
         // 处理税费
         _handleTax(tax);
-
-        emit TaxDistribution(tax, liquidityAmount, amountAfterTax);
         return true;
     }
 
@@ -139,15 +136,12 @@ contract MeMeToken is ERC20, Ownable {
         require(to != address(0), "Invalid recipient address");
         // 计算税费
         uint256 tax = _calculateSellTax(from, to, value);
-        uint256 liquidityAmount = _calculateSellTax(from, to, value);
-        uint256 amountAfterTax = value - tax - liquidityAmount;
+        uint256 amountAfterTax = value - tax;
         // 转账
-        _transfer(from, to, amountAfterTax);
+        super.transferFrom(from, to, amountAfterTax);
 
         // 处理税费
         _handleTax(tax);
-
-        emit TaxDistribution(tax, liquidityAmount, amountAfterTax);
         return true;
     }
 
@@ -185,6 +179,7 @@ contract MeMeToken is ERC20, Ownable {
         if (recipientAmount > 0) {
             _transfer(address(this), taxRecipient, recipientAmount);
         }
+        emit TaxDistribution(recipientAmount, liquidityAmount, burnAmount);
     }
 
 
