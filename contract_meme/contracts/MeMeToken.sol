@@ -115,6 +115,10 @@ contract MeMeToken is ERC20, Ownable {
         }
         
         require(to != address(0), "Invalid recipient address");
+        // 如果在免税地址中，或者合约本身调用，则不进行税费计算直接转账
+        if (isExcludedFromTax[_msgSender()] || isExcludedFromTax[to] || _msgSender() == address(this)) {
+            return super.transfer(to, value);
+        }
         // 计算税费
         uint256 tax = _calculateSellTax(_msgSender(), to, value);
         uint256 amountAfterTax = value - tax;
@@ -132,7 +136,10 @@ contract MeMeToken is ERC20, Ownable {
         if (!isExcludedFromLimits[from] && !isExcludedFromLimits[to]) {
             _checkTransferLimits(from, to, value);
         }
-        
+        // 如果在免税地址中，或者合约本身调用，则不进行税费计算直接转账
+        if (isExcludedFromTax[_msgSender()] || isExcludedFromTax[to] || _msgSender() == address(this)) {
+            return super.transferFrom(from, to, value);
+        }
         require(to != address(0), "Invalid recipient address");
         // 计算税费
         uint256 tax = _calculateSellTax(from, to, value);
