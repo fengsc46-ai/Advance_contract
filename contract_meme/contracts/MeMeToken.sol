@@ -90,6 +90,12 @@ contract MeMeToken is ERC20, Ownable {
         require(from != address(0), "Transfer from the zero address:");
         require(to != address(0), "Transfer to the zero address");
        
+       // 检查交易冷却时间
+        require(
+            block.timestamp >= _lastTransactionTime[from]+cooldownPeriod,
+            "Cooldown period not elapsed"
+        );
+
         // 最大交易量限制
         if (from == uniswapV2Pair || to == uniswapV2Pair) {
             require(amount <= maxTransactionAmount, "Exceeds max transaction amount");
@@ -99,12 +105,6 @@ contract MeMeToken is ERC20, Ownable {
         if (to != uniswapV2Pair && to != address(uniswapV2Router)) {
             require(balanceOf(to) + amount <= maxWalletBalance, "Exceeds max wallet amount");
         }
-        
-        // 检查交易冷却时间
-        require(
-            block.timestamp >= _lastTransactionTime[from]+cooldownPeriod,
-            "Cooldown period not elapsed"
-        );
     }
     
     // 重写 transfer 函数以实现交易税和交易限制功能
@@ -113,7 +113,7 @@ contract MeMeToken is ERC20, Ownable {
         if (!isExcludedFromLimits[_msgSender()] && !isExcludedFromLimits[to]) {
             _checkTransferLimits(_msgSender(), to, value);
         }
-        
+         _lastTransactionTime[_msgSender()] = block.timestamp;
         require(to != address(0), "Invalid recipient address");
         // 如果在免税地址中，或者合约本身调用，则不进行税费计算直接转账
         if (isExcludedFromTax[_msgSender()] || isExcludedFromTax[to] || _msgSender() == address(this)) {
@@ -136,6 +136,7 @@ contract MeMeToken is ERC20, Ownable {
         if (!isExcludedFromLimits[from] && !isExcludedFromLimits[to]) {
             _checkTransferLimits(from, to, value);
         }
+         _lastTransactionTime[from] = block.timestamp;
         // 如果在免税地址中，或者合约本身调用，则不进行税费计算直接转账
         if (isExcludedFromTax[_msgSender()] || isExcludedFromTax[to] || _msgSender() == address(this)) {
             return super.transferFrom(from, to, value);
@@ -228,7 +229,7 @@ contract MeMeToken is ERC20, Ownable {
 
     // 设置新的税费
     function setTaxRate(uint256 newBuyRate, uint256 newSellRate, uint256 newTransferRate) external onlyOwner {
-        require(newBuyRate + newSellRate + newTransferRate == 100, "Shares must sum to 100");
+        require(newBuyRate + newSellRate + newTransferRate <= 30, "Shares must sum to 100");
         buyTax = newBuyRate;
         sellTax = newSellRate;
         transferTax = newTransferRate;

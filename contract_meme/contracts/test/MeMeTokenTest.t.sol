@@ -250,6 +250,8 @@ contract MeMeTokenTransferTest is Test {
 
     function testEmergencyPause() public {
         // 暂停合约
+        vm.warp(block.timestamp + memeToken.cooldownPeriod() + 1);
+         // 3. 设置紧急暂停
         vm.prank(owner);
         memeToken.emergencyPause();
         
