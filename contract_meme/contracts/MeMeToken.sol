@@ -4,6 +4,8 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 
+import "hardhat/console.sol";
+
 interface IUniswapV2Factory {
     function createPair(address tokenA, address tokenB) external returns (address pair);
     function getPair(address tokenA, address tokenB) external view returns (address pair);
@@ -44,9 +46,9 @@ contract MeMeToken is ERC20, Ownable {
     mapping (address => bool) public isExcludedFromTax; // 免税地址列表
 
     // 税费的处理
-    uint256 public burnedTax = 30; // 税费中用于销毁的百分比
-    uint256 public liquidityTax = 70; // 税费中用于流动性池的百分比
-    uint256 public recipientTax = 0; // 税费中用于接收地址的百分比
+    uint256 public burnedTax = 20; // 税费中用于销毁的百分比
+    uint256 public liquidityTax = 60; // 税费中用于流动性池的百分比
+    uint256 public recipientTax = 20; // 税费中用于接收地址的百分比
 
     // 交易限制参数
     uint256 public maxTransactionAmount = 1000000 * 10**18; // 单笔最大交易量
@@ -113,7 +115,7 @@ contract MeMeToken is ERC20, Ownable {
         if (!isExcludedFromLimits[_msgSender()] && !isExcludedFromLimits[to]) {
             _checkTransferLimits(_msgSender(), to, value);
         }
-         _lastTransactionTime[_msgSender()] = block.timestamp;
+        _lastTransactionTime[_msgSender()] = block.timestamp;
         require(to != address(0), "Invalid recipient address");
         // 如果在免税地址中，或者合约本身调用，则不进行税费计算直接转账
         if (isExcludedFromTax[_msgSender()] || isExcludedFromTax[to] || _msgSender() == address(this)) {
@@ -124,9 +126,12 @@ contract MeMeToken is ERC20, Ownable {
         uint256 amountAfterTax = value - tax;
         // 转账
         super.transfer(to, amountAfterTax);
-        super.transfer(address(this), tax);
-        // 处理税费
-        _handleTax(tax);
+        if (tax >0 ) {
+            // super.transfer(address(this), tax);
+            // 处理税费
+            _handleTax(_msgSender(), tax);
+        }
+        
         return true;
     }
 
@@ -149,7 +154,7 @@ contract MeMeToken is ERC20, Ownable {
         super.transferFrom(from, to, amountAfterTax);
 
         // 处理税费
-        _handleTax(tax);
+        _handleTax(from, tax);
         return true;
     }
 
@@ -158,34 +163,34 @@ contract MeMeToken is ERC20, Ownable {
     function _calculateSellTax(address from, address to, uint256 amount) internal view returns (uint256) {
         // 判断是流动性买入、卖出还是普通转账，并应用相应的税率
         if (to == uniswapV2Pair) {
-            return (amount * sellTax) / 100;
+            return (amount * sellTax) / 10000;
         } else  if (from == uniswapV2Pair) {
-            return (amount * buyTax) / 100;
+            return (amount * buyTax) / 10000;
         } else {
-            return (amount * transferTax) / 100;
+            return (amount * transferTax) / 10000;
         }
     }
 
     // 处理税费
-    function _handleTax(uint256 taxAmount) internal {
+    function _handleTax(address from, uint256 taxAmount) internal {
         uint256 burnAmount = (taxAmount * burnedTax) / 100;
         uint256 liquidityAmount = (taxAmount * liquidityTax) / 100;
         uint256 recipientAmount = taxAmount - burnAmount - liquidityAmount;
 
         // 销毁代币
         if (burnAmount > 0) {
-            _burn(address(this), burnAmount);
+            _burn(from, burnAmount);
         }
 
         // 添加流动性
         if (liquidityAmount > 0) {
             // 这里可以添加流动性到Uniswap的逻辑
-            _transfer(address(this), liquidityWallet, liquidityAmount);
+            _transfer(from, liquidityWallet, liquidityAmount);
         }
 
         // 转账给税费接收地址
         if (recipientAmount > 0) {
-            _transfer(address(this), taxRecipient, recipientAmount);
+            _transfer(from, taxRecipient, recipientAmount);
         }
         emit TaxDistribution(recipientAmount, liquidityAmount, burnAmount);
     }
